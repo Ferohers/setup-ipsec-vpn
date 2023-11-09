@@ -354,68 +354,6 @@ get_swan_ver() {
   fi
 }
 
-check_libreswan() {
-  check_result=0
-  ipsec_ver=$(/usr/local/sbin/ipsec --version 2>/dev/null)
-  swan_ver_old=$(printf '%s' "$ipsec_ver" | sed -e 's/.*Libreswan U\?//' -e 's/\( (\|\/K\).*//')
-  ipsec_bin="/usr/local/sbin/ipsec"
-  if [ -n "$swan_ver_old" ] && printf '%s' "$ipsec_ver" | grep -qi 'libreswan' \
-    && [ "$(find "$ipsec_bin" -mmin -10080)" ]; then
-    check_result=1
-    return 0
-  fi
-  get_swan_ver
-  if [ -s "$ipsec_bin" ] && [ "$swan_ver_old" = "$SWAN_VER" ]; then
-    touch "$ipsec_bin"
-  fi
-  [ "$swan_ver_old" = "$SWAN_VER" ] && check_result=1
-}
-
-get_libreswan() {
-  if [ "$check_result" = 0 ]; then
-    bigecho "Downloading Libreswan..."
-    cd /opt/src || exit 1
-    swan_file="libreswan-$SWAN_VER.tar.gz"
-    swan_url1="https://github.com/libreswan/libreswan/archive/v$SWAN_VER.tar.gz"
-    swan_url2="https://download.libreswan.org/$swan_file"
-    (
-      set -x
-      wget -t 3 -T 30 -q -O "$swan_file" "$swan_url1" || wget -t 3 -T 30 -q -O "$swan_file" "$swan_url2"
-    ) || exit 1
-    /bin/rm -rf "/opt/src/libreswan-$SWAN_VER"
-    tar xzf "$swan_file" && /bin/rm -f "$swan_file"
-  else
-    bigecho "Libreswan $swan_ver_old is already installed, skipping..."
-  fi
-}
-
-install_libreswan() {
-  if [ "$check_result" = 0 ]; then
-    bigecho "Compiling and installing Libreswan, please wait..."
-    cd "libreswan-$SWAN_VER" || exit 1
-cat > Makefile.inc.local <<'EOF'
-WERROR_CFLAGS=-w -s
-USE_DNSSEC=false
-USE_DH2=true
-USE_NSS_KDF=false
-FINALNSSDIR=/etc/ipsec.d
-EOF
-    if ! grep -qs IFLA_XFRM_LINK /usr/include/linux/if_link.h; then
-      echo "USE_XFRM_INTERFACE_IFLA_HEADER=true" >> Makefile.inc.local
-    fi
-    NPROCS=$(grep -c ^processor /proc/cpuinfo)
-    [ -z "$NPROCS" ] && NPROCS=1
-    (
-      set -x
-      make "-j$((NPROCS+1))" -s base >/dev/null && make -s install-base >/dev/null
-    )
-    cd /opt/src || exit 1
-    /bin/rm -rf "/opt/src/libreswan-$SWAN_VER"
-    if ! /usr/local/sbin/ipsec --version 2>/dev/null | grep -qF "$SWAN_VER"; then
-      exiterr "Libreswan $SWAN_VER failed to build."
-    fi
-  fi
-}
 
 create_vpn_config() {
   bigecho "Creating VPN configuration..."
